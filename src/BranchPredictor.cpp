@@ -39,6 +39,19 @@ bool BranchPredictor::predict(uint32_t pc, uint32_t insttype, int64_t op1,
     }   
   }
   break;
+  case MY:{
+    switch(this->myState){
+      case MyPredictorState::TAKEN4: return true;
+      case MyPredictorState::TAKEN3: return true;
+      case MyPredictorState::TAKEN2: return buf_previous || buf_previous2;
+      case MyPredictorState::TAKEN1: return buf_previous && buf_previous2;
+      case MyPredictorState::NOT_TAKEN1: return buf_previous || buf_previous2;
+      case MyPredictorState::NOT_TAKEN2: return buf_previous && buf_previous2;
+      case MyPredictorState::NOT_TAKEN3: return false;
+      case MyPredictorState::NOT_TAKEN4: return false;
+
+    }
+  }
   default:
     dbgprintf("Unknown Branch Perdiction Strategy!\n");
     break;
@@ -47,25 +60,71 @@ bool BranchPredictor::predict(uint32_t pc, uint32_t insttype, int64_t op1,
 }
 
 void BranchPredictor::update(uint32_t pc, bool branch) {
-  int id = pc % PRED_BUF_SIZE;
-  PredictorState state = this->predbuf[id];
-  if (branch) {
-    if (state == STRONG_NOT_TAKEN) {
-      this->predbuf[id] = WEAK_NOT_TAKEN;
-    } else if (state == WEAK_NOT_TAKEN) {
-      this->predbuf[id] = WEAK_TAKEN;
-    } else if (state == WEAK_TAKEN) {
-      this->predbuf[id] = STRONG_TAKEN;
-    } // do nothing if STRONG_TAKEN
-  } else { // not branch
-    if (state == STRONG_TAKEN) {
-      this->predbuf[id] = WEAK_TAKEN;
-    } else if (state == WEAK_TAKEN) {
-      this->predbuf[id] = WEAK_NOT_TAKEN;
-    } else if (state == WEAK_NOT_TAKEN) {
-      this->predbuf[id] = STRONG_NOT_TAKEN;
-    } // do noting if STRONG_NOT_TAKEN
+  switch(this->strategy){
+    case MY:
+    buf_previous2 = buf_previous;
+    buf_previous = branch;
+    if(branch){
+      switch(this->myState){
+        case MyPredictorState::TAKEN4: myState=MyPredictorState::TAKEN4;break;
+        case MyPredictorState::TAKEN3: 
+          if(buf_taken){
+            myState=MyPredictorState::TAKEN4;break;
+          }
+          else{
+            buf_taken=true; break;
+          }
+        case MyPredictorState::TAKEN2: myState=MyPredictorState::TAKEN3;break;
+        case MyPredictorState::TAKEN1: myState=MyPredictorState::TAKEN2;break;
+        case MyPredictorState::NOT_TAKEN1: myState=MyPredictorState::TAKEN1;break;
+        case MyPredictorState::NOT_TAKEN2: myState=MyPredictorState::NOT_TAKEN1;break;
+        case MyPredictorState::NOT_TAKEN3: myState=MyPredictorState::NOT_TAKEN2;break;
+        case MyPredictorState::NOT_TAKEN4: myState=MyPredictorState::NOT_TAKEN3;break;
+      }
+      buf_not_taken=false;
+    }
+    else{
+      switch(this->myState){
+        case MyPredictorState::TAKEN4: myState=MyPredictorState::TAKEN3;break;
+        case MyPredictorState::TAKEN3: myState=MyPredictorState::TAKEN2;break;
+        case MyPredictorState::TAKEN2: myState=MyPredictorState::TAKEN1;break;
+        case MyPredictorState::TAKEN1: myState=MyPredictorState::NOT_TAKEN1;break;
+        case MyPredictorState::NOT_TAKEN1: myState=MyPredictorState::NOT_TAKEN2;break;
+        case MyPredictorState::NOT_TAKEN2: myState=MyPredictorState::NOT_TAKEN3;break;
+        case MyPredictorState::NOT_TAKEN3:
+          if(buf_not_taken){
+            myState=MyPredictorState::TAKEN4;break;
+          }
+          else{
+            buf_not_taken=true; break;
+          }
+        case MyPredictorState::NOT_TAKEN4: myState=MyPredictorState::NOT_TAKEN4;break;
+      }
+      buf_taken = false;
+    }
+    
+    default:
+      int id = pc % PRED_BUF_SIZE;
+      PredictorState state = this->predbuf[id];
+    if (branch) {
+      if (state == STRONG_NOT_TAKEN) {
+        this->predbuf[id] = WEAK_NOT_TAKEN;
+      } else if (state == WEAK_NOT_TAKEN) {
+        this->predbuf[id] = WEAK_TAKEN;
+      } else if (state == WEAK_TAKEN) {
+        this->predbuf[id] = STRONG_TAKEN;
+      } // do nothing if STRONG_TAKEN
+    } else { // not branch
+      if (state == STRONG_TAKEN) {
+        this->predbuf[id] = WEAK_TAKEN;
+      } else if (state == WEAK_TAKEN) {
+        this->predbuf[id] = WEAK_NOT_TAKEN;
+      } else if (state == WEAK_NOT_TAKEN) {
+        this->predbuf[id] = STRONG_NOT_TAKEN;
+      } // do noting if STRONG_NOT_TAKEN
+    }
   }
+  
 }
 
 std::string BranchPredictor::strategyName() {
@@ -78,6 +137,8 @@ std::string BranchPredictor::strategyName() {
     return "Back Taken Forward Not Taken";
   case BPB:
     return "Branch Prediction Buffer";
+  case MY:
+    return "My Branch Predictor";
   default:
     dbgprintf("Unknown Branch Perdiction Strategy!\n");
     break;
